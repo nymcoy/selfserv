@@ -1,0 +1,34 @@
+config setup
+  charondebug="ike 3, knl 1, cfg 3"
+  # charondebug="cfg 4, dmn 4, ike 4, net 4"
+  uniqueids=replace
+
+conn local-bypass
+    leftsubnet=127.0.0.1/32,192.168.50.0/24,172.17.0.0/16 #docker
+    rightsubnet=127.0.0.1/32,192.168.50.0/24,172.17.0.0/16 #docker
+    authby=never
+    type=pass
+    auto=route
+
+conn gateway-to-server
+  auto=start
+  compress=no
+  type=tunnel
+  keyexchange=ikev2
+  fragmentation=yes
+  forceencaps=yes
+  closeaction=restart
+  dpdaction=restart
+  dpddelay=30s
+  dpdtimeout=180s
+  rekey=yes
+  authby=secret
+  ike=aes256gcm12-sha256-modp4096,aes128gcm12-sha256-modp4096!
+  esp=aes256gcm12-sha256,aes128gcm12-sha256!
+  right={{ hostvars['gateway']['ansible_host'] }}
+  rightid=@gateway
+  rightsubnet=0.0.0.0/0
+  left=10.8.0.2
+  leftid=@server
+  leftsourceip=10.8.0.2
+  mobike=no

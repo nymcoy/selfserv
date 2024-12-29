@@ -1,0 +1,38 @@
+# EC2 Gateway Setup
+- name: Launch EC2 instance
+  ec2_instance:
+    name: gateway
+    state: started
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    key_name: aws
+    region: "{{ aws_region }}"
+    instance_type: t4g.nano
+    image_id: ami-0789039e34e739d67
+    security_group: "{{ aws_security_group }}"
+    network_interfaces:
+      - assign_public_ip: false
+    wait: yes
+    subnet_id: "{{ aws_subnet_id }}"
+  register: ec2_instance
+  delegate_to: localhost
+
+- name: Allocate specific Elastic IP to the EC2 instance
+  ec2_eip:
+    state: present
+    in_vpc: yes
+    device_id: "{{ ec2_instance.instance_ids[0] }}"
+    public_ip: "{{ aws_public_ip }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+  register: eip
+  delegate_to: localhost
+
+- name: Add new EC2 instance to inventory
+  add_host:
+    name: "gateway"
+    ansible_host: "{{ eip.public_ip }}"
+    ansible_ssh_private_key_file: "~/.ssh/aws.pem"
+    ansible_user: "admin"  # Replace with the appropriate user for your AMI
+  delegate_to: localhost

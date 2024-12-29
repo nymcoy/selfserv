@@ -1,0 +1,26 @@
+---
+- name: Common configuration
+  hosts: all
+  become: yes
+  collections:
+    - amazon.aws
+    - community.docker
+  vars_files:
+    - secrets/secrets.yml
+  
+  tasks:
+    - import_tasks: aws.yml
+    - import_tasks: gateway.yml
+    - import_tasks: server.yml
+  
+  handlers:
+    - name: Save IPTables
+      community.general.iptables_state:
+        state: saved
+        path: /etc/iptables/rules.v4
+      delegate_to: gateway
+
+    - name: Save IPTables Server
+      community.general.iptables_state:
+        state: saved
+        path: /etc/iptables/rules.v4

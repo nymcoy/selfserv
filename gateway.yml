@@ -1,0 +1,171 @@
+---
+# Make sure the gateway is up to date
+- name: Update and dist-upgrade apt packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+  delegate_to: gateway
+
+# Install required packages
+- name: Install StrongSwan and IPTables Persistent
+  apt:
+    name:
+      - ntp
+      - strongswan
+      - iptables
+      - iptables-persistent
+    state: present
+  delegate_to: gateway
+
+# ntp setup
+- name: Configure NTP
+  copy:
+    content: |
+      driftfile /var/lib/ntp/ntp.drift
+      server 0.pool.ntp.org iburst
+      server 1.pool.ntp.org iburst
+      server 2.pool.ntp.org iburst
+      server 3.pool.ntp.org iburst
+    dest: /etc/ntp.conf
+  delegate_to: gateway
+  
+- name: Start and enable NTP service
+  service:
+    name: ntp
+    state: started
+    enabled: yes
+  delegate_to: gateway
+
+- name: Set timezone to EST
+  timezone:
+    name: America/New_York
+  delegate_to: gateway
+    
+# StrongSwan setup
+- name: Configure StrongSwan with ipsec.conf
+  template:
+    src: ipsec.conf.gateway.j2
+    dest: /etc/ipsec.conf
+    owner: root
+    group: root
+    mode: '0644'
+  delegate_to: gateway
+
+- name: Configure IPsec secrets
+  copy:
+    content: |
+      @gateway @server : PSK "{{ vpn_psk }}"
+    dest: /etc/ipsec.secrets
+    owner: root
+    group: root
+    mode: '0600'
+  delegate_to: gateway
+
+- name: Enable and start StrongSwan
+  systemd:
+    name: strongswan-starter
+    enabled: yes
+    state: restarted
+  delegate_to: gateway
+
+# IPTables setup
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: yes
+    state: present
+    reload: yes
+  delegate_to: gateway
+
+- name: Flush all iptables rules
+  iptables:
+    table: "{{ item }}"
+    flush: yes
+  with_items:
+  - filter
+  - nat
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Set default policies
+  iptables:
+    chain: "{{ item.chain }}"
+    policy: "{{ item.policy }}"
+  with_items:
+  - { chain: INPUT, policy: ACCEPT }
+  - { chain: FORWARD, policy: ACCEPT }
+  - { chain: OUTPUT, policy: ACCEPT }
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Allow all loopback traffic
+  iptables:
+    chain: INPUT
+    in_interface: lo
+    jump: ACCEPT
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Drop traffic to 127/8 that doesn't use lo0
+  iptables:
+    chain: INPUT
+    destination: 127.0.0.0/8
+    jump: REJECT
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Allow established and related traffic on INPUT chain
+  iptables:
+    chain: INPUT
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Allow established and related traffic on FORWARD chain
+  iptables:
+    chain: FORWARD
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Allow SSH
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: 22
+    jump: ACCEPT
+  delegate_to: gateway
+
+- name: Allow forwarding of HTTP traffic on port 80
+  iptables:
+    chain: FORWARD
+    protocol: tcp
+    destination_port: 80
+    jump: ACCEPT
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Add DNAT rule for HTTP traffic to internal server
+  iptables:
+    table: nat
+    chain: PREROUTING
+    protocol: tcp
+    destination_port: 80
+    jump: DNAT
+    to_destination: 10.8.0.2
+  notify: Save IPTables
+  delegate_to: gateway
+
+- name: Add masquerade rule for all outgoing traffic
+  iptables:
+    table: nat
+    chain: POSTROUTING
+    jump: MASQUERADE
+  notify: Save IPTables
+  delegate_to: gateway
+
+- meta: flush_handlers
+
